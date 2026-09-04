@@ -18,7 +18,9 @@ dependencies:
   go_router: ^14.0.0
 
   # IM SDK（融云）
-  rongcloud_im_wrapper_flutter: ^6.0.0
+  # ⚠️ pub.dev 上不存在 rongcloud_im_wrapper_flutter（假想 6.x 包名），
+  # 真实官方包为 rongcloud_im_plugin（5.x，RongIMClient 静态 API）
+  rongcloud_im_plugin: ^5.1.8
 
   # 本地存储
   hive: ^2.2.3

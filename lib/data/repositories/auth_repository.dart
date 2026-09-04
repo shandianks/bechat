@@ -1,4 +1,3 @@
-import 'package:rongcloud_im_wrapper_flutter/rongcloud_im_wrapper_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../datasources/local_datasource.dart';
@@ -46,7 +45,7 @@ class AuthRepository {
     // 连接融云（Demo 用匿名 Token，生产环境从后端获取）
     final token = await _getTokenFromServer(userId);
     final code = await _rcim.connect(userId: userId, token: token);
-    if (code != RCIMIWErrorCode.success) {
+    if (code != 0) {
       throw Exception('IM 连接失败，错误码: $code');
     }
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rongcloud_im_plugin/rongcloud_im_plugin.dart';
 import '../datasources/local_datasource.dart';
 import '../datasources/rcim_datasource.dart';
 import '../models/conversation_model.dart';
@@ -32,13 +33,26 @@ class ConversationRepository {
           targetId: target,
         );
         if (local == null) {
+          // 5.x Conversation 无 title/portrait 字段：从本地用户/群资料补齐，
+          // 查不到则回退用 targetId 占位（单聊场景多为对方用户 ID）
+          String? title;
+          String? portrait;
+          if (type == 1) {
+            final user = _local.getUserById(target);
+            title = user?.nickname ?? target;
+            portrait = user?.portrait;
+          } else {
+            final group = _local.getGroupById(target);
+            title = group?.name ?? target;
+            portrait = group?.portrait;
+          }
           await _local.saveConversation(ConversationModel(
             targetId: target,
             conversationType: type,
-            title: rc.title,
-            portrait: rc.portrait,
+            title: title,
+            portrait: portrait,
             lastMessageContent: _displayOf(rc),
-            lastMessageTime: rc.sentTime?.toInt() ?? 0,
+            lastMessageTime: rc.sentTime ?? 0,
             unreadCount: rc.unreadMessageCount ?? 0,
           ));
           // saveConversation 已广播事件，订阅会自动刷新列表
@@ -50,20 +64,18 @@ class ConversationRepository {
     _refreshList();
   }
 
-  /// 融云会话对象 → 会话列表展示文本（对象名转占位文案）
-  String _displayOf(RCIMIWConversation rc) {
-    final name = rc.lastMessage?.objectName;
-    switch (name) {
-      case 'RC:ImgMsg':
-        return '[图片]';
-      case 'RC:VcMsg':
-        return '[语音]';
-      case 'RC:FileMsg':
-        return '[文件]';
-      default:
-        // 文本消息对象名原样展示无意义，优先草稿
-        return (rc.draft?.isNotEmpty ?? false) ? rc.draft! : '';
-    }
+  /// 融云会话对象 → 会话列表展示文本
+  /// 5.x Conversation.latestMessageContent 为已 decode 的消息内容对象，
+  /// 用 runtimeType 判断媒体类型（语音 objectName 为 RC:HQVCMsg，不能按字符串匹配）
+  String _displayOf(Conversation rc) {
+    final draft = rc.draft;
+    if (draft != null && draft.isNotEmpty) return draft;
+    final content = rc.latestMessageContent;
+    if (content is ImageMessage) return '[图片]';
+    if (content is VoiceMessage) return '[语音]';
+    if (content is FileMessage) return '[文件]';
+    // 文本/撤回等消息：返回空，列表页会回退展示时间占位
+    return '';
   }
 
   /// 获取会话列表

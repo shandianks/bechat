@@ -22,7 +22,8 @@ class AppConstants {
   static const String msgTypeText = 'RC:TxtMsg';
   static const String msgTypeImage = 'RC:ImgMsg';
   static const String msgTypeVoice = 'RC:VcMsg';
-  static const String msgTypeRecall = 'RC:RecallCmd';
+  // 撤回通知（5.x SDK 真实 objectName 为 RC:RcNtf，非 RC:RecallCmd）
+  static const String msgTypeRecall = 'RC:RcNtf';
 
   // 会话类型（融云定义）
   static const int conversationTypePrivate = 1;

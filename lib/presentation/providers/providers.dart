@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:rongcloud_im_wrapper_flutter/rongcloud_im_wrapper_flutter.dart';
 import '../core/constants/app_constants.dart';
 import '../data/datasources/rcim_datasource.dart';
 import '../data/datasources/local_datasource.dart';
@@ -136,7 +135,6 @@ final totalUnreadCountProvider = Provider<int>((ref) {
 final groupProvider = Provider<GroupRepository>((ref) {
   return GroupRepository(
     ref.read(localDatasourceProvider),
-    ref.read(rcimDatasourceProvider),
     ref.read(authProvider),
   );
 });
