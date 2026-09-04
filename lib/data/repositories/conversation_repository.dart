@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../datasources/local_datasource.dart';
 import '../datasources/rcim_datasource.dart';
 import '../models/conversation_model.dart';
-import '../models/message_model.dart';
 
 /// 会话列表服务
 class ConversationRepository {
@@ -18,30 +17,53 @@ class ConversationRepository {
   }
 
   void _init() {
-    // 监听融云会话列表变化
+    // 单一事实源：所有会话写操作（收消息/发送/撤回/清未读/upsert）都经 LocalDatasource 广播，
+    // 这里订阅后从 Hive 重读推流，避免内存副本与 Hive 双写不一致
+    _local.onConversationChanged.listen((_) => _refreshList());
+
+    // 融云会话列表变化：仅补本地缺失的会话（冷启动/新设备首拉），已存在则本地为准不覆盖
     _rcim.onConversationListChanged.listen((rcimConversations) async {
-      final list = <ConversationModel>[];
       for (final rc in rcimConversations) {
-        final conv = ConversationModel(
-          targetId: rc.targetId ?? '',
-          conversationType: rc.conversationType ?? 1,
-          title: rc.title,
-          portrait: rc.portrait,
-          lastMessageContent: rc.draft ?? rc.lastMessage?.objectName,
-          lastMessageTime: rc.sentTime?.toInt() ?? 0,
-          unreadCount: rc.unreadMessageCount ?? 0,
+        final type = rc.conversationType ?? 1;
+        final target = rc.targetId ?? '';
+        if (target.isEmpty) continue;
+        final local = _local.getConversation(
+          conversationType: type,
+          targetId: target,
         );
-        list.add(conv);
-        await _local.saveConversation(conv);
+        if (local == null) {
+          await _local.saveConversation(ConversationModel(
+            targetId: target,
+            conversationType: type,
+            title: rc.title,
+            portrait: rc.portrait,
+            lastMessageContent: _displayOf(rc),
+            lastMessageTime: rc.sentTime?.toInt() ?? 0,
+            unreadCount: rc.unreadMessageCount ?? 0,
+          ));
+          // saveConversation 已广播事件，订阅会自动刷新列表
+        }
       }
-      list.sort((a, b) => b.lastMessageTime.compareTo(a.lastMessageTime));
-      _conversationList = list;
-      _conversationListController.add(_conversationList);
     });
 
     // 初始化时从本地加载
-    _conversationList = _local.getConversationList();
-    _conversationListController.add(_conversationList);
+    _refreshList();
+  }
+
+  /// 融云会话对象 → 会话列表展示文本（对象名转占位文案）
+  String _displayOf(RCIMIWConversation rc) {
+    final name = rc.lastMessage?.objectName;
+    switch (name) {
+      case 'RC:ImgMsg':
+        return '[图片]';
+      case 'RC:VcMsg':
+        return '[语音]';
+      case 'RC:FileMsg':
+        return '[文件]';
+      default:
+        // 文本消息对象名原样展示无意义，优先草稿
+        return (rc.draft?.isNotEmpty ?? false) ? rc.draft! : '';
+    }
   }
 
   /// 获取会话列表

@@ -41,6 +41,20 @@ class MessageModel extends Equatable {
   @HiveField(11)
   final String? extra; // 扩展字段 JSON
 
+  /// 会话列表展示用的摘要文本（图片/语音/文件等媒体消息转为占位文案）
+  String get summaryContent {
+    switch (messageType) {
+      case 'RC:ImgMsg':
+        return '[图片]';
+      case 'RC:VcMsg':
+        return '[语音]';
+      case 'RC:FileMsg':
+        return '[文件]';
+      default:
+        return content;
+    }
+  }
+
   const MessageModel({
     required this.messageId,
     required this.senderId,

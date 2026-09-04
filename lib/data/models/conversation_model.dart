@@ -88,24 +88,9 @@ class ConversationModel extends Equatable {
       portrait: message.isGroup
           ? group?.portrait
           : (user?.portrait ?? message.senderPortrait),
-      lastMessageContent: _getMessageSummary(message),
+      lastMessageContent: message.summaryContent,
       lastMessageTime: message.timestamp,
     );
-  }
-
-  static String _getMessageSummary(MessageModel msg) {
-    switch (msg.messageType) {
-      case 'RC:TxtMsg':
-        return msg.content;
-      case 'RC:ImgMsg':
-        return '[图片]';
-      case 'RC:VcMsg':
-        return '[语音]';
-      case 'RC:FileMsg':
-        return '[文件]';
-      default:
-        return msg.content;
-    }
   }
 
   ConversationModel copyWith({

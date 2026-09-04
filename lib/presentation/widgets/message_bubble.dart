@@ -11,97 +11,104 @@ class MessageBubble extends StatelessWidget {
   final bool isMine;
   final bool showAvatar;
 
+  /// 长按菜单动作回调：action ∈ copy / recall / delete
+  final Future<void> Function(String action, MessageModel message)? onAction;
+
   const MessageBubble({
     super.key,
     required this.message,
     required this.isMine,
     this.showAvatar = true,
+    this.onAction,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisAlignment: isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (!isMine) ...[
-            _buildAvatar(),
-            const SizedBox(width: 8),
-          ],
-          Flexible(
-            child: Column(
-              crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-              children: [
-                // 发送者名称（群聊）
-                if (!isMine && message.conversationType == 3)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4, bottom: 2),
-                    child: Text(
-                      message.senderName,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textHint,
-                      ),
-                    ),
-                  ),
-                // 气泡
-                Container(
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.72,
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isMine ? AppColors.myBubble : AppColors.otherBubble,
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(18),
-                      topRight: const Radius.circular(18),
-                      bottomLeft: Radius.circular(isMine ? 18 : (showAvatar ? 4 : 18)),
-                      bottomRight: Radius.circular(isMine ? (showAvatar ? 4 : 18) : 18),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
-                        blurRadius: 4,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
-                  child: _buildContent(),
-                ),
-                // 时间 + 发送状态
-                Padding(
-                  padding: const EdgeInsets.only(top: 2, left: 4, right: 4),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        message.formattedTime,
+    return GestureDetector(
+      onLongPress: () => _showActionSheet(context),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          mainAxisAlignment: isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (!isMine) ...[
+              _buildAvatar(),
+              const SizedBox(width: 8),
+            ],
+            Flexible(
+              child: Column(
+                crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                children: [
+                  // 发送者名称（群聊）
+                  if (!isMine && message.conversationType == 3)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 2),
+                      child: Text(
+                        message.senderName,
                         style: const TextStyle(
-                          fontSize: 10,
+                          fontSize: 11,
                           color: AppColors.textHint,
                         ),
                       ),
-                      if (isMine) ...[
-                        const SizedBox(width: 4),
-                        _buildSendStatus(),
+                    ),
+                  // 气泡
+                  Container(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width * 0.72,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isMine ? AppColors.myBubble : AppColors.otherBubble,
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(18),
+                        topRight: const Radius.circular(18),
+                        bottomLeft: Radius.circular(isMine ? 18 : (showAvatar ? 4 : 18)),
+                        bottomRight: Radius.circular(isMine ? (showAvatar ? 4 : 18) : 18),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1),
+                        ),
                       ],
-                    ],
+                    ),
+                    child: _buildContent(),
                   ),
-                ),
-              ],
+                  // 时间 + 发送状态
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2, left: 4, right: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          message.formattedTime,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: AppColors.textHint,
+                          ),
+                        ),
+                        if (isMine) ...[
+                          const SizedBox(width: 4),
+                          _buildSendStatus(),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          if (isMine) ...[
-            const SizedBox(width: 8),
-            _buildAvatar(),
+            if (isMine) ...[
+              const SizedBox(width: 8),
+              _buildAvatar(),
+            ],
           ],
-        ],
-      ),
+        ),
+        ),
     );
   }
 
@@ -236,6 +243,56 @@ class MessageBubble extends StatelessWidget {
       default:
         return const SizedBox.shrink();
     }
+  }
+
+  /// 长按弹出消息操作菜单
+  Future<void> _showActionSheet(BuildContext context) async {
+    if (onAction == null) return;
+
+    // 构建可用操作
+    final actions = <(String, IconData, String)>[
+      if (message.messageType == 'RC:TxtMsg')
+        ('copy', Icons.copy_rounded, '复制'),
+      if (isMine && message.sentStatus == 1)
+        ('recall', Icons.replay_rounded, '撤回'),
+      ('delete', Icons.delete_outline_rounded, '删除'),
+    ];
+    if (actions.isEmpty) return;
+
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => SafeArea(
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(ctx).scaffoldBackgroundColor,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final (key, icon, label) in actions)
+                ListTile(
+                  leading: Icon(icon, color: key == 'delete' ? AppColors.error : null),
+                  title: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: key == 'delete' ? AppColors.error : null,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(ctx, key),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (picked == null || !context.mounted) return;
+    await onAction?.call(picked, message);
   }
 }
 

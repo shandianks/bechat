@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:hive_flutter/hive_flutter.dart';
 import '../../core/constants/app_constants.dart';
 import '../models/user_model.dart';
@@ -14,6 +16,10 @@ class LocalDatasource {
   late Box<dynamic> _configBox;
 
   bool _initialized = false;
+
+  /// 会话数据变更通知（写入 Hive 会话表后广播，供 ConversationRepository 订阅刷新）
+  final _conversationChangeController = StreamController<void>.broadcast();
+  Stream<void> get onConversationChanged => _conversationChangeController.stream;
 
   /// 初始化 Hive，注册 TypeAdapter
   Future<void> init() async {
@@ -137,6 +143,15 @@ class LocalDatasource {
     return '${conversationType}_${targetId}_$messageId';
   }
 
+  /// 删除单条消息（撤回/本地删除用）
+  Future<void> deleteMessage({
+    required int conversationType,
+    required String targetId,
+    required String messageId,
+  }) async {
+    await _messageBox.delete(_messageKey(conversationType, targetId, messageId));
+  }
+
   /// 删除某会话所有消息
   Future<void> deleteMessagesForConversation(int conversationType, String targetId) async {
     final keys = _messageBox.keys
@@ -150,9 +165,47 @@ class LocalDatasource {
   /// 保存会话列表
   Future<void> saveConversation(ConversationModel conv) async {
     await _conversationBox.put(conv.conversationKey, conv);
+    _conversationChangeController.add(null);
   }
 
-  /// 更新会话最后消息
+  /// 收到新消息时更新会话（摘要 + 未读+1；会话不存在则创建）
+  Future<void> onIncomingMessage({
+    required int conversationType,
+    required String targetId,
+    required String content,
+    required int timestamp,
+    String? title,
+    String? portrait,
+  }) async {
+    final key = '${conversationType}_$targetId';
+    final existing = _conversationBox.get(key);
+    if (existing != null) {
+      await _conversationBox.put(
+        key,
+        existing.copyWith(
+          lastMessageContent: content,
+          lastMessageTime: timestamp,
+          unreadCount: (existing.unreadCount ?? 0) + 1,
+        ),
+      );
+    } else {
+      await _conversationBox.put(
+        key,
+        ConversationModel(
+          targetId: targetId,
+          conversationType: conversationType,
+          title: title,
+          portrait: portrait,
+          lastMessageContent: content,
+          lastMessageTime: timestamp,
+          unreadCount: 1,
+        ),
+      );
+    }
+    _conversationChangeController.add(null);
+  }
+
+  /// 更新会话最后消息（本端发送等场景，不影响未读数）
   Future<void> updateConversationLastMessage({
     required int conversationType,
     required String targetId,
@@ -170,6 +223,7 @@ class LocalDatasource {
         ),
       );
     }
+    _conversationChangeController.add(null);
   }
 
   /// 获取会话列表（按最后消息时间倒序）
@@ -197,6 +251,7 @@ class LocalDatasource {
     if (existing != null) {
       await _conversationBox.put(key, existing.copyWith(unreadCount: 0));
     }
+    _conversationChangeController.add(null);
   }
 
   /// 获取总未读数

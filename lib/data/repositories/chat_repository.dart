@@ -15,7 +15,8 @@ class ChatRepository {
   final RCIMDatasource _rcim;
   final AuthRepository _auth;
 
-  final _messageController = StreamController<List<MessageModel>>.broadcast();
+  final _messageController = StreamController<
+      ({int conversationType, String targetId, List<MessageModel> messages})>.broadcast();
   StreamSubscription? _rcimSubscription;
 
   /// 缓存当前会话的消息列表
@@ -28,12 +29,28 @@ class ChatRepository {
   void _subscribeToRCIM() {
     _rcimSubscription = _rcim.onMessageReceived.listen((message) async {
       await _local.saveMessage(message);
-      await _local.updateConversationLastMessage(
+      // 会话摘要/未读统一走本地事件源（ConversationRepository 订阅后自动刷新）
+      await _local.onIncomingMessage(
         conversationType: message.conversationType,
         targetId: message.targetId,
-        content: message.content,
+        content: message.summaryContent,
         timestamp: message.timestamp,
+        // 单聊首会话时用发送者信息兜底标题/头像
+        title: message.conversationType == 1 ? message.senderName : null,
+        portrait: message.conversationType == 1 ? message.senderPortrait : null,
       );
+
+      // 同步插入内存缓存（仅当该会话已加载过，避免污染未打开会话的缓存）
+      final key = _cacheKey(message.conversationType, message.targetId);
+      final list = _messageCache[key];
+      if (list != null) {
+        final exists = list.any((m) => m.messageId == message.messageId);
+        if (!exists) {
+          list.add(message);
+          list.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        }
+      }
+
       _notifyMessageUpdate(message.conversationType, message.targetId);
     });
   }
@@ -44,6 +61,8 @@ class ChatRepository {
     required String targetId,
     String? beforeMessageId,
   }) async {
+    final key = _cacheKey(conversationType, targetId);
+
     // 先从本地加载
     final localMessages = _local.getMessages(
       conversationType: conversationType,
@@ -52,8 +71,7 @@ class ChatRepository {
 
     // 如果本地消息足够（>=10条），直接返回
     if (localMessages.length >= 10) {
-      _messageCache[_cacheKey(conversationType, targetId)] = localMessages;
-      return localMessages;
+      return _mergeIntoCache(key, localMessages);
     }
 
     // 从融云拉取历史
@@ -86,13 +104,27 @@ class ChatRepository {
         ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
       await _local.saveMessages(merged);
-      _messageCache[_cacheKey(conversationType, targetId)] = merged;
-      return merged;
+      return _mergeIntoCache(key, merged);
     } catch (e) {
       // 融云连接失败时返回本地
-      _messageCache[_cacheKey(conversationType, targetId)] = localMessages;
-      return localMessages;
+      return _mergeIntoCache(key, localMessages);
     }
+  }
+
+  /// 将新数据合并进内存缓存（不整体覆盖，避免并发时吞掉刚发的新消息）
+  /// 返回合并后的完整列表
+  List<MessageModel> _mergeIntoCache(String key, List<MessageModel> incoming) {
+    final merged = <String, MessageModel>{};
+    for (final m in _messageCache[key] ?? <MessageModel>[]) {
+      merged[m.messageId] = m;
+    }
+    for (final m in incoming) {
+      merged[m.messageId] = m;
+    }
+    final sorted = merged.values.toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    _messageCache[key] = sorted;
+    return sorted;
   }
 
   /// 发送消息
@@ -142,27 +174,21 @@ class ChatRepository {
           timestamp: sentMsg.timestamp,
         );
 
-        // 更新缓存中的消息
-        final idx = _messageCache[key]?.indexWhere((m) => m.messageId == localMsg.messageId);
-        if (idx != null && idx >= 0) {
-          _messageCache[key]![idx] = sentMsg;
-        }
+        // 更新缓存中的消息（不存在则插入头部，防止被并发加载覆盖）
+        _replaceOrInsert(key, localMsg, sentMsg);
         _notifyMessageUpdate(conversationType, targetId);
         return sentMsg;
       } else {
         // 发送失败
         final failedMsg = localMsg.copyWith(sentStatus: 2);
-        _messageCache[key]![_messageCache[key]!.indexWhere((m) => m.messageId == localMsg.messageId)] = failedMsg;
+        _replaceOrInsert(key, localMsg, failedMsg);
         _notifyMessageUpdate(conversationType, targetId);
         return failedMsg;
       }
     } catch (e) {
       // 发送失败
       final failedMsg = localMsg.copyWith(sentStatus: 2);
-      final idx = _messageCache[key]?.indexWhere((m) => m.messageId == localMsg.messageId);
-      if (idx != null && idx >= 0) {
-        _messageCache[key]![idx] = failedMsg;
-      }
+      _replaceOrInsert(key, localMsg, failedMsg);
       _notifyMessageUpdate(conversationType, targetId);
       return failedMsg;
     }
@@ -214,25 +240,19 @@ class ChatRepository {
           timestamp: sentMsg.timestamp,
         );
 
-        // 更新缓存中的消息
-        final idx = _messageCache[key]?.indexWhere((m) => m.messageId == localMsg.messageId);
-        if (idx != null && idx >= 0) {
-          _messageCache[key]![idx] = sentMsg;
-        }
+        // 更新缓存中的消息（不存在则插入头部，防止被并发加载覆盖）
+        _replaceOrInsert(key, localMsg, sentMsg);
         _notifyMessageUpdate(conversationType, targetId);
         return sentMsg;
       } else {
         final failedMsg = localMsg.copyWith(sentStatus: 2);
-        _messageCache[key]![_messageCache[key]!.indexWhere((m) => m.messageId == localMsg.messageId)] = failedMsg;
+        _replaceOrInsert(key, localMsg, failedMsg);
         _notifyMessageUpdate(conversationType, targetId);
         return failedMsg;
       }
     } catch (e) {
       final failedMsg = localMsg.copyWith(sentStatus: 2);
-      final idx = _messageCache[key]?.indexWhere((m) => m.messageId == localMsg.messageId);
-      if (idx != null && idx >= 0) {
-        _messageCache[key]![idx] = failedMsg;
-      }
+      _replaceOrInsert(key, localMsg, failedMsg);
       _notifyMessageUpdate(conversationType, targetId);
       return failedMsg;
     }
@@ -285,24 +305,18 @@ class ChatRepository {
           timestamp: sentMsg.timestamp,
         );
 
-        final idx = _messageCache[key]?.indexWhere((m) => m.messageId == localMsg.messageId);
-        if (idx != null && idx >= 0) {
-          _messageCache[key]![idx] = sentMsg;
-        }
+        _replaceOrInsert(key, localMsg, sentMsg);
         _notifyMessageUpdate(conversationType, targetId);
         return sentMsg;
       } else {
         final failedMsg = localMsg.copyWith(sentStatus: 2);
-        _messageCache[key]![_messageCache[key]!.indexWhere((m) => m.messageId == localMsg.messageId)] = failedMsg;
+        _replaceOrInsert(key, localMsg, failedMsg);
         _notifyMessageUpdate(conversationType, targetId);
         return failedMsg;
       }
     } catch (e) {
       final failedMsg = localMsg.copyWith(sentStatus: 2);
-      final idx = _messageCache[key]?.indexWhere((m) => m.messageId == localMsg.messageId);
-      if (idx != null && idx >= 0) {
-        _messageCache[key]![idx] = failedMsg;
-      }
+      _replaceOrInsert(key, localMsg, failedMsg);
       _notifyMessageUpdate(conversationType, targetId);
       return failedMsg;
     }
@@ -311,6 +325,93 @@ class ChatRepository {
   /// 获取当前消息列表（从缓存）
   List<MessageModel> getCurrentMessages(int conversationType, String targetId) {
     return _messageCache[_cacheKey(conversationType, targetId)] ?? [];
+  }
+
+  /// 撤回消息（融云 + 本地同步移除）
+  /// 返回 true 表示撤回成功
+  Future<bool> recallMessage({
+    required int conversationType,
+    required String targetId,
+    required String messageId,
+  }) async {
+    final code = await _rcim.recallMessage(messageId);
+    if (code != 0) return false;
+
+    await _removeMessageLocal(
+      conversationType: conversationType,
+      targetId: targetId,
+      messageId: messageId,
+    );
+
+    // 会话摘要回退到上一条（无则置占位文案），对齐主流 IM 行为
+    final rest = _local.getMessages(
+      conversationType: conversationType,
+      targetId: targetId,
+      limit: 1,
+    );
+    if (rest.isNotEmpty) {
+      await _local.updateConversationLastMessage(
+        conversationType: conversationType,
+        targetId: targetId,
+        content: rest.first.summaryContent,
+        timestamp: rest.first.timestamp,
+      );
+    } else {
+      await _local.updateConversationLastMessage(
+        conversationType: conversationType,
+        targetId: targetId,
+        content: '[消息已撤回]',
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      );
+    }
+    return true;
+  }
+
+  /// 本地删除消息（仅本端生效）
+  Future<void> deleteMessage({
+    required int conversationType,
+    required String targetId,
+    required String messageId,
+  }) async {
+    await _removeMessageLocal(
+      conversationType: conversationType,
+      targetId: targetId,
+      messageId: messageId,
+    );
+  }
+
+  /// 从内存缓存 + Hive 移除单条消息并通知刷新
+  Future<void> _removeMessageLocal({
+    required int conversationType,
+    required String targetId,
+    required String messageId,
+  }) async {
+    final key = _cacheKey(conversationType, targetId);
+    final list = _messageCache[key];
+    if (list != null) {
+      list.removeWhere((m) => m.messageId == messageId);
+    }
+    await _local.deleteMessage(
+      conversationType: conversationType,
+      targetId: targetId,
+      messageId: messageId,
+    );
+    _notifyMessageUpdate(conversationType, targetId);
+  }
+
+  /// 定位乐观消息并替换；若缓存已被并发加载覆盖（找不到），则插入头部
+  void _replaceOrInsert(String key, MessageModel localMsg, MessageModel newMsg) {
+    final list = _messageCache[key];
+    if (list == null) {
+      _messageCache[key] = [newMsg];
+      return;
+    }
+    final idx = list.indexWhere((m) => m.messageId == localMsg.messageId);
+    if (idx >= 0) {
+      list[idx] = newMsg;
+    } else {
+      list.insert(0, newMsg);
+    }
   }
 
   /// 标记消息已读
@@ -331,12 +432,19 @@ class ChatRepository {
   String _cacheKey(int conversationType, String targetId) => '${conversationType}_$targetId';
 
   void _notifyMessageUpdate(int conversationType, String targetId) {
-    _messageController.add(getCurrentMessages(conversationType, targetId));
+    _messageController.add((
+      conversationType: conversationType,
+      targetId: targetId,
+      messages: getCurrentMessages(conversationType, targetId),
+    ));
   }
 
+  /// 按会话过滤的消息流（删除/撤回致列表为空时也能正确推送）
   Stream<List<MessageModel>> messageStream(int conversationType, String targetId) {
     return _messageController.stream
-        .where((msgs) => msgs.isNotEmpty && msgs.first.targetId == targetId && msgs.first.conversationType == conversationType);
+        .where((e) =>
+            e.conversationType == conversationType && e.targetId == targetId)
+        .map((e) => e.messages);
   }
 
   void dispose() {
