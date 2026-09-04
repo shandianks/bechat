@@ -4,9 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../datasources/local_datasource.dart';
 import '../datasources/rcim_datasource.dart';
 import '../models/message_model.dart';
-import '../models/conversation_model.dart';
-import '../models/user_model.dart';
-import '../models/group_model.dart';
 import 'auth_repository.dart';
 
 /// 聊天服务

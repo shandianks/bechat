@@ -130,7 +130,6 @@ class LocalDatasource {
     int? beforeTimestamp,
     int limit = 20,
   }) {
-    final prefix = '${conversationType}_${targetId}_';
     final all = _messageBox.values
         .where((m) => m.targetId == targetId && m.conversationType == conversationType)
         .where((m) => beforeTimestamp == null || m.timestamp < beforeTimestamp)
@@ -186,7 +185,7 @@ class LocalDatasource {
         existing.copyWith(
           lastMessageContent: content,
           lastMessageTime: timestamp,
-          unreadCount: (existing.unreadCount ?? 0) + 1,
+          unreadCount: existing.unreadCount + 1,
         ),
       );
     } else {

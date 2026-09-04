@@ -213,8 +213,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   padding: const EdgeInsets.symmetric(vertical: 20),
                   decoration: BoxDecoration(
                     color: cancelArmed
-                        ? Colors.red.withOpacity(0.85)
-                        : Colors.black.withOpacity(0.65),
+                        ? Colors.red.withValues(alpha: 0.85)
+                        : Colors.black.withValues(alpha: 0.65),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Column(
@@ -306,12 +306,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border(
+        border: const Border(
           top: BorderSide(color: AppColors.divider, width: 0.5),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 4,
             offset: const Offset(0, -1),
           ),
@@ -428,7 +428,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: _isRecording
-                    ? AppColors.primary.withOpacity(0.08)
+                    ? AppColors.primary.withValues(alpha: 0.08)
                     : AppColors.inputBg,
                 borderRadius: BorderRadius.circular(21),
                 border: Border.all(
@@ -540,7 +540,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
             width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.1),
+              color: AppColors.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(icon, color: AppColors.primary, size: 26),

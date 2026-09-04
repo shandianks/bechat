@@ -6,7 +6,6 @@ import '../../presentation/screens/auth/login_screen.dart';
 import '../../presentation/screens/home/home_screen.dart';
 import '../../presentation/screens/chat/chat_screen.dart';
 import '../../presentation/screens/group/create_group_screen.dart';
-import '../../presentation/screens/group/group_detail_screen.dart';
 import '../../presentation/screens/group/group_info_screen.dart';
 import '../../presentation/screens/contacts/contacts_screen.dart';
 import '../../presentation/providers/providers.dart';

@@ -275,7 +275,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           Icon(
             Icons.chat_bubble_outline,
             size: 56,
-            color: AppColors.textHint.withOpacity(0.5),
+            color: AppColors.textHint.withValues(alpha: 0.5),
           ),
           const SizedBox(height: 16),
           const Text(

@@ -1,6 +1,5 @@
 import 'package:equatable/equatable.dart';
 import 'package:hive/hive.dart';
-import 'user_model.dart';
 
 part 'group_model.g.dart';
 

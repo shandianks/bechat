@@ -111,7 +111,6 @@ class ConversationRepository {
     String? title,
     String? portrait,
   }) async {
-    final key = '${conversationType}_$targetId';
     final existing = _local.getConversation(
       conversationType: conversationType,
       targetId: targetId,

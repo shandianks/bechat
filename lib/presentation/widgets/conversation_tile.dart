@@ -116,7 +116,7 @@ class ConversationTile extends StatelessWidget {
           width: 52,
           height: 52,
           decoration: BoxDecoration(
-            color: isGroup ? AppColors.primary.withOpacity(0.1) : AppColors.inputBg,
+            color: isGroup ? AppColors.primary.withValues(alpha: 0.1) : AppColors.inputBg,
             borderRadius: BorderRadius.circular(isGroup ? 12 : 26),
           ),
           child: portrait != null

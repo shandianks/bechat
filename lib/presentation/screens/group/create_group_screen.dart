@@ -157,7 +157,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                     }
                   });
                 },
-                selectedColor: AppColors.primary.withOpacity(0.15),
+                selectedColor: AppColors.primary.withValues(alpha: 0.15),
                 checkmarkColor: AppColors.primary,
               );
             }).toList(),
@@ -167,7 +167,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.06),
+              color: AppColors.primary.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Row(

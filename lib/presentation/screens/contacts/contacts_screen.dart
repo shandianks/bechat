@@ -71,7 +71,7 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.person_search, size: 48, color: AppColors.textHint.withOpacity(0.5)),
+                        Icon(Icons.person_search, size: 48, color: AppColors.textHint.withValues(alpha: 0.5)),
                         const SizedBox(height: 12),
                         const Text(
                           '没有找到联系人',

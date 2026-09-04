@@ -71,7 +71,7 @@ class MessageBubble extends StatelessWidget {
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
+                          color: Colors.black.withValues(alpha: 0.04),
                           blurRadius: 4,
                           offset: const Offset(0, 1),
                         ),
@@ -393,7 +393,7 @@ class _VoiceBubble extends StatelessWidget {
                         value: progress ?? 0,
                         backgroundColor:
                             (isMine ? Colors.white : Colors.black)
-                                .withOpacity(0.15),
+                                .withValues(alpha: 0.15),
                         color: isMine
                             ? AppColors.myBubbleText
                             : AppColors.primary,
