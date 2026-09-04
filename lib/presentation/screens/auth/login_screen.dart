@@ -16,7 +16,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _nicknameController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
-  bool _obscureText = true;
 
   @override
   void dispose() {

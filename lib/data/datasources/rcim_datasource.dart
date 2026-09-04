@@ -144,10 +144,12 @@ class RCIMDatasource {
     int conversationType,
     String targetId,
     MessageContent content,
-  ) async {
+  ) {
     final completer = Completer<MessageModel?>();
+    // 快照变量先声明：finished 回调可能先于 Future resolve 触发，闭包引用才合法
+    Message? snapshot;
 
-    final sent = await RongIMClient.sendMessageWithCallBack(
+    RongIMClient.sendMessageWithCallBack(
       conversationType,
       targetId,
       content,
@@ -160,21 +162,27 @@ class RCIMDatasource {
         }
         // 成功：取本地完整消息（图片/语音发送成功后 SDK 会补全远端地址）
         RongIMClient.getMessage(messageId).then((Message? full) {
-          final model = _convertMessage(full ?? sent)?.copyWith(
+          final model = _convertMessage(full ?? snapshot)?.copyWith(
             messageId: '$messageId',
             sentStatus: 1,
           );
           if (!completer.isCompleted) completer.complete(model);
         }).catchError((Object _) {
-          // getMessage 极低概率失败：退化为 sent 快照 + 成功态
-          final model = _convertMessage(sent)?.copyWith(
+          // getMessage 极低概率失败：退化为快照 + 成功态
+          final model = _convertMessage(snapshot)?.copyWith(
             messageId: '$messageId',
             sentStatus: 1,
           );
           if (!completer.isCompleted) completer.complete(model);
         });
       },
-    );
+    ).then((Message? m) {
+      // Future 携带发送快照（权威结果以 finished 回调为准）
+      snapshot = m;
+    }).catchError((Object _) {
+      // 发送链路异常且回调未成功：兜底完成，避免上层永久挂起
+      if (!completer.isCompleted) completer.complete(null);
+    });
 
     return completer.future;
   }

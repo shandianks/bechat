@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../core/constants/app_constants.dart';
-import '../data/datasources/rcim_datasource.dart';
-import '../data/datasources/local_datasource.dart';
-import '../data/repositories/auth_repository.dart';
-import '../data/repositories/chat_repository.dart';
-import '../data/repositories/conversation_repository.dart';
-import '../data/repositories/group_repository.dart';
-import '../data/models/user_model.dart';
-import '../data/models/message_model.dart';
-import '../data/models/conversation_model.dart';
-import '../data/models/group_model.dart';
+import '../../data/datasources/rcim_datasource.dart';
+import '../../data/datasources/local_datasource.dart';
+import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/chat_repository.dart';
+import '../../data/repositories/conversation_repository.dart';
+import '../../data/repositories/group_repository.dart';
+import '../../data/models/user_model.dart';
+import '../../data/models/message_model.dart';
+import '../../data/models/conversation_model.dart';
+import '../../data/models/group_model.dart';
 
 // ============ 全局 Providers ============
 

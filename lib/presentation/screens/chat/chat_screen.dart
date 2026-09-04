@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/voice_player_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/message_model.dart';
-import '../../../data/repositories/chat_repository.dart';
 import '../../providers/providers.dart';
 import '../../widgets/message_bubble.dart';
 import '../../widgets/chat_input_bar.dart';

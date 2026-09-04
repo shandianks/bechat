@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../../data/models/conversation_model.dart';
 import '../../providers/providers.dart';
 import '../../widgets/conversation_tile.dart';

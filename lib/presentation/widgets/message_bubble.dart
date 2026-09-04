@@ -77,7 +77,7 @@ class MessageBubble extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: _buildContent(),
+                    child: _buildContent(context),
                   ),
                   // 时间 + 发送状态
                   Padding(
@@ -112,10 +112,10 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildContent() {
+  Widget _buildContent(BuildContext context) {
     switch (message.messageType) {
       case 'RC:ImgMsg':
-        return _buildImageContent();
+        return _buildImageContent(context);
       case 'RC:VcMsg':
         return _buildVoiceContent();
       default:
@@ -130,7 +130,7 @@ class MessageBubble extends StatelessWidget {
     }
   }
 
-  Widget _buildImageContent() {
+  Widget _buildImageContent(BuildContext context) {
     final isLocal = message.content.startsWith('/') ||
         message.content.startsWith('file://') ||
         message.content.startsWith('content://') ||

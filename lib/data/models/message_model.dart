@@ -23,6 +23,9 @@ class MessageModel extends Equatable {
   @HiveField(5)
   final int conversationType; // 1=单聊 3=群聊
 
+  /// 是否为群聊消息（conversationType == 3）
+  bool get isGroup => conversationType == 3;
+
   @HiveField(6)
   final String content;
 
