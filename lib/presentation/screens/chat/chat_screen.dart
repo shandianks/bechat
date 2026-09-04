@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/voice_player_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/message_model.dart';
 import '../../../data/repositories/chat_repository.dart';
@@ -43,6 +44,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scrollController.dispose();
     _textController.dispose();
     _focusNode.dispose();
+    VoicePlayerService.instance.stop();
     super.dispose();
   }
 
@@ -91,6 +93,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       targetId: widget.targetId,
       imagePath: imagePath,
     );
+    setState(() {
+      _messages = [msg, ..._messages];
+    });
+    _scrollToBottom();
+  }
+
+  Future<void> _sendVoice(String voicePath, int durationSeconds) async {
+    final repo = ref.read(chatProvider);
+    final msg = await repo.sendVoiceMessage(
+      conversationType: widget.conversationType,
+      targetId: widget.targetId,
+      voicePath: voicePath,
+      durationSeconds: durationSeconds,
+    );
+    if (!mounted) return;
     setState(() {
       _messages = [msg, ..._messages];
     });
@@ -193,6 +210,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             conversationType: widget.conversationType,
             targetId: widget.targetId,
             onSendImage: _sendImage,
+            onSendVoice: _sendVoice,
           ),
         ],
       ),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../datasources/local_datasource.dart';
 import '../datasources/rcim_datasource.dart';
@@ -214,6 +215,76 @@ class ChatRepository {
         );
 
         // 更新缓存中的消息
+        final idx = _messageCache[key]?.indexWhere((m) => m.messageId == localMsg.messageId);
+        if (idx != null && idx >= 0) {
+          _messageCache[key]![idx] = sentMsg;
+        }
+        _notifyMessageUpdate(conversationType, targetId);
+        return sentMsg;
+      } else {
+        final failedMsg = localMsg.copyWith(sentStatus: 2);
+        _messageCache[key]![_messageCache[key]!.indexWhere((m) => m.messageId == localMsg.messageId)] = failedMsg;
+        _notifyMessageUpdate(conversationType, targetId);
+        return failedMsg;
+      }
+    } catch (e) {
+      final failedMsg = localMsg.copyWith(sentStatus: 2);
+      final idx = _messageCache[key]?.indexWhere((m) => m.messageId == localMsg.messageId);
+      if (idx != null && idx >= 0) {
+        _messageCache[key]![idx] = failedMsg;
+      }
+      _notifyMessageUpdate(conversationType, targetId);
+      return failedMsg;
+    }
+  }
+
+  /// 发送语音消息
+  Future<MessageModel> sendVoiceMessage({
+    required int conversationType,
+    required String targetId,
+    required String voicePath,
+    required int durationSeconds,
+  }) async {
+    final currentUser = _auth.currentUser;
+
+    // 本地消息（乐观显示：本地路径可立即播放预览）
+    final localMsg = MessageModel(
+      messageId: 'local_${DateTime.now().millisecondsSinceEpoch}',
+      senderId: currentUser?.id ?? '',
+      senderName: currentUser?.nickname ?? '我',
+      senderPortrait: currentUser?.portrait,
+      targetId: targetId,
+      conversationType: conversationType,
+      content: voicePath,
+      messageType: 'RC:VcMsg',
+      sentStatus: 0,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      extra: jsonEncode({'duration': durationSeconds}),
+    );
+
+    final key = _cacheKey(conversationType, targetId);
+    final list = _messageCache[key] ?? [];
+    _messageCache[key] = [localMsg, ...list];
+    _notifyMessageUpdate(conversationType, targetId);
+
+    try {
+      final sentMsg = await _rcim.sendVoiceMessage(
+        conversationType: conversationType,
+        targetId: targetId,
+        voicePath: voicePath,
+        durationSeconds: durationSeconds,
+        senderName: currentUser?.nickname ?? '我',
+      );
+
+      if (sentMsg != null) {
+        await _local.saveMessage(sentMsg);
+        await _local.updateConversationLastMessage(
+          conversationType: conversationType,
+          targetId: targetId,
+          content: '[语音]',
+          timestamp: sentMsg.timestamp,
+        );
+
         final idx = _messageCache[key]?.indexWhere((m) => m.messageId == localMsg.messageId);
         if (idx != null && idx >= 0) {
           _messageCache[key]![idx] = sentMsg;

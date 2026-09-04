@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:rongcloud_im_wrapper_flutter/rongcloud_im_wrapper_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_constants.dart';
@@ -124,6 +125,31 @@ class RCIMDatasource {
     return _convertMessage(sentMessage);
   }
 
+  /// 发送语音消息
+  Future<MessageModel?> sendVoiceMessage({
+    required int conversationType,
+    required String targetId,
+    required String voicePath,
+    int durationSeconds = 0,
+    String? senderName,
+  }) async {
+    final voiceMessage = RCIMIWVoiceMessage.create(
+      conversationType: conversationType,
+      targetId: targetId,
+      path: voicePath,
+      duration: durationSeconds,
+    );
+
+    final sentMessage = await _engine.sendMessage(
+      conversationType,
+      targetId,
+      message: voiceMessage,
+      params: RCSendMessageParams(),
+    );
+
+    return _convertMessage(sentMessage);
+  }
+
   /// 获取历史消息
   Future<List<MessageModel>> getHistoryMessages({
     required int conversationType,
@@ -221,6 +247,7 @@ class RCIMDatasource {
     if (msg == null) return null;
     String content = '';
     String messageType = msg.objectName ?? 'RC:TxtMsg';
+    String? extra = msg.extra;
 
     if (msg is RCIMIWTextMessage) {
       content = msg.text ?? '';
@@ -229,8 +256,22 @@ class RCIMDatasource {
       content = msg.remoteUrl ?? '';
       messageType = 'RC:ImgMsg';
     } else if (msg is RCIMIWVoiceMessage) {
-      content = '${msg.duration}s';
+      // content 存语音文件地址（本地或远程），时长放 extra
+      final local = msg.localPath;
+      final remote = msg.remoteUrl;
+      content = (remote != null && remote.isNotEmpty)
+          ? remote
+          : (local ?? '');
       messageType = 'RC:VcMsg';
+
+      int durSec = 0;
+      final dur = msg.duration;
+      if (dur is int) {
+        durSec = dur;
+      } else if (dur is Duration) {
+        durSec = dur.inSeconds;
+      }
+      extra = jsonEncode({'duration': durSec});
     }
 
     return MessageModel(
@@ -244,7 +285,7 @@ class RCIMDatasource {
       messageType: messageType,
       sentStatus: msg.sentStatus == RCSentStatus.sent ? 1 : 0,
       timestamp: msg.sentTime?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
-      extra: msg.extra,
+      extra: extra,
     );
   }
 

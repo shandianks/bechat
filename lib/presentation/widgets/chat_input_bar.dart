@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import '../../core/theme/app_theme.dart';
 
 class ChatInputBar extends StatefulWidget {
@@ -11,6 +14,9 @@ class ChatInputBar extends StatefulWidget {
   final String targetId;
   final void Function(String imagePath) onSendImage;
 
+  /// 语音发送回调（本地路径 + 时长秒）
+  final void Function(String voicePath, int durationSeconds) onSendVoice;
+
   const ChatInputBar({
     super.key,
     required this.controller,
@@ -19,6 +25,7 @@ class ChatInputBar extends StatefulWidget {
     required this.conversationType,
     required this.targetId,
     required this.onSendImage,
+    required this.onSendVoice,
   });
 
   @override
@@ -27,6 +34,19 @@ class ChatInputBar extends StatefulWidget {
 
 class _ChatInputBarState extends State<ChatInputBar> {
   bool _hasText = false;
+  bool _voiceMode = false;
+
+  // ---- 录音相关 ----
+  final AudioRecorder _recorder = AudioRecorder();
+  final GlobalKey _holdBtnKey = GlobalKey();
+  String? _recordPath;
+  Stopwatch? _recordWatch;
+  Timer? _recordTimer;
+  bool _cancelArmed = false;
+  bool _isRecording = false;
+  bool _gestureActive = false;
+  int _recordMillis = 0;
+  OverlayEntry? _recordOverlay;
 
   @override
   void initState() {
@@ -37,6 +57,11 @@ class _ChatInputBarState extends State<ChatInputBar> {
   @override
   void dispose() {
     widget.controller.removeListener(_onTextChanged);
+    _recordTimer?.cancel();
+    _removeRecordOverlay();
+    _cancelNotifier.dispose();
+    _millisNotifier.dispose();
+    _recorder.dispose();
     super.dispose();
   }
 
@@ -68,6 +93,214 @@ class _ChatInputBarState extends State<ChatInputBar> {
     }
   }
 
+  // ==================== 录音逻辑 ====================
+
+  Future<void> _startRecording() async {
+    try {
+      if (!await _recorder.hasPermission()) {
+        _showToast('需要麦克风权限才能录音');
+        return;
+      }
+      // 权限弹窗期间用户可能已松手
+      if (!_gestureActive) return;
+
+      final dir = await getTemporaryDirectory();
+      final path =
+          '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _recorder.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc),
+        path: path,
+      );
+      if (!_gestureActive) {
+        // 录音刚启动但手势已结束：直接停止并丢弃
+        await _recorder.cancel();
+        return;
+      }
+
+      _recordPath = path;
+      _recordWatch = Stopwatch()..start();
+      _recordMillis = 0;
+      _cancelArmed = false;
+      _isRecording = true;
+
+      // 计时刷新
+      _recordTimer?.cancel();
+      _recordTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+        if (!mounted) return;
+        setState(() => _recordMillis = _recordWatch?.elapsedMilliseconds ?? 0);
+        // 同步浮层计时（Overlay 独立于本 widget 树）
+        _millisNotifier.value = _recordMillis;
+      });
+
+      _showRecordOverlay();
+    } catch (e) {
+      _isRecording = false;
+      _showToast('录音启动失败');
+    }
+  }
+
+  /// 结束录音：cancel=true 丢弃，否则走发送流程
+  Future<void> _finishRecording({required bool cancel}) async {
+    if (!_isRecording) return;
+    _isRecording = false;
+    _recordTimer?.cancel();
+    _recordWatch?.stop();
+    final durationMs = _recordWatch?.elapsedMilliseconds ?? 0;
+    final path = _recordPath;
+    _recordPath = null;
+    _removeRecordOverlay();
+
+    try {
+      if (cancel) {
+        await _recorder.cancel();
+        _deleteFile(path);
+        return;
+      }
+
+      final savedPath = await _recorder.stop();
+      if (savedPath == null || savedPath.isEmpty) {
+        _deleteFile(path);
+        return;
+      }
+
+      final seconds = (durationMs / 1000).round();
+      if (seconds < 1) {
+        _deleteFile(savedPath);
+        _showToast('说话时间太短');
+        return;
+      }
+      widget.onSendVoice(savedPath, seconds);
+    } catch (e) {
+      _deleteFile(path);
+      _showToast('录音发送失败');
+    }
+  }
+
+  void _deleteFile(String? path) {
+    if (path == null) return;
+    try {
+      final f = File(path);
+      if (f.existsSync()) f.deleteSync();
+    } catch (_) {}
+  }
+
+  void _showToast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 1),
+        behavior: SnackBarBehavior.floating,
+      ));
+  }
+
+  // ---- 录音浮层（Overlay） ----
+
+  void _showRecordOverlay() {
+    _removeRecordOverlay();
+    final overlay = Overlay.of(context);
+    _recordOverlay = OverlayEntry(
+      builder: (_) => Positioned.fill(
+        child: IgnorePointer(
+          child: Center(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _cancelNotifier,
+              builder: (context, cancelArmed, _) {
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  width: 160,
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  decoration: BoxDecoration(
+                    color: cancelArmed
+                        ? Colors.red.withOpacity(0.85)
+                        : Colors.black.withOpacity(0.65),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        cancelArmed
+                            ? Icons.keyboard_arrow_up
+                            : Icons.mic_rounded,
+                        color: Colors.white,
+                        size: 44,
+                      ),
+                      const SizedBox(height: 12),
+                      ValueListenableBuilder<int>(
+                        valueListenable: _millisNotifier,
+                        builder: (context, millis, _) {
+                          final sec = (millis / 1000).floor();
+                          return Text(
+                            cancelArmed ? '松开 取消' : '${sec}s',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: cancelArmed ? 14 : 22,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(_recordOverlay!);
+  }
+
+  void _removeRecordOverlay() {
+    _recordOverlay?.remove();
+    _recordOverlay = null;
+  }
+
+  // ValueNotifier 供 Overlay 内刷新（跨 build 树）
+  final ValueNotifier<bool> _cancelNotifier = ValueNotifier(false);
+  final ValueNotifier<int> _millisNotifier = ValueNotifier(0);
+
+  // ---- 按住说话手势 ----
+
+  void _onHoldStart(LongPressStartDetails details) {
+    _gestureActive = true;
+    setState(() => _cancelArmed = false);
+    _cancelNotifier.value = false;
+    _startRecording();
+  }
+
+  void _onHoldMove(LongPressMoveUpdateDetails details) {
+    // 手指上滑超过按钮上方 ~90px 判定为取消区
+    final box = _holdBtnKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final top = box.localToGlobal(Offset.zero).dy;
+    final armed = details.globalPosition.dy < top - 90;
+    if (armed != _cancelArmed) {
+      setState(() => _cancelArmed = armed);
+      _cancelNotifier.value = armed;
+    }
+    _millisNotifier.value = _recordWatch?.elapsedMilliseconds ?? 0;
+  }
+
+  void _onHoldEnd(LongPressEndDetails details) {
+    _gestureActive = false;
+    _millisNotifier.value = 0;
+    _finishRecording(cancel: _cancelArmed);
+    setState(() => _cancelArmed = false);
+    _cancelNotifier.value = false;
+  }
+
+  void _onHoldCancel() {
+    _gestureActive = false;
+    _millisNotifier.value = 0;
+    _finishRecording(cancel: true);
+    setState(() => _cancelArmed = false);
+    _cancelNotifier.value = false;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -88,83 +321,148 @@ class _ChatInputBarState extends State<ChatInputBar> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              // 更多功能按钮
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline),
-                color: AppColors.textSecondary,
-                onPressed: () => _showMoreActions(context),
-              ),
-              // 输入框
-              Expanded(
-                child: Container(
-                  constraints: const BoxConstraints(
-                    maxHeight: 120,
-                    minHeight: 40,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.inputBg,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: TextField(
-                    controller: widget.controller,
-                    focusNode: widget.focusNode,
-                    maxLines: null,
-                    textInputAction: TextInputAction.newline,
-                    keyboardType: TextInputType.multiline,
-                    style: const TextStyle(fontSize: 16),
-                    decoration: const InputDecoration(
-                      hintText: '输入消息...',
-                      hintStyle: TextStyle(color: AppColors.textHint),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      isDense: true,
-                    ),
-                    onSubmitted: (_) {
-                      if (widget.controller.text.trim().isNotEmpty) {
-                        widget.onSend();
-                      }
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              // 发送按钮
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: _hasText ? 40 : 0,
-                child: _hasText
-                    ? IconButton(
-                        icon: const Icon(Icons.send_rounded),
-                        color: AppColors.primary,
-                        padding: EdgeInsets.zero,
-                        onPressed: widget.onSend,
-                      )
-                    : const SizedBox.shrink(),
-              ),
-              // 语音按钮（无文字时显示）
-              if (!_hasText)
-                IconButton(
-                  icon: const Icon(Icons.mic_none_rounded),
-                  color: AppColors.textSecondary,
-                  onPressed: () {
-                    // TODO: 语音录制
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('语音功能开发中...')),
-                    );
-                  },
-                ),
-            ],
-          ),
+          child: _voiceMode ? _buildVoiceModeBar() : _buildTextModeBar(),
         ),
       ),
     );
   }
+
+  // ---- 文字输入模式 ----
+
+  Widget _buildTextModeBar() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        // 更多功能按钮
+        IconButton(
+          icon: const Icon(Icons.add_circle_outline),
+          color: AppColors.textSecondary,
+          onPressed: () => _showMoreActions(context),
+        ),
+        // 输入框
+        Expanded(
+          child: Container(
+            constraints: const BoxConstraints(
+              maxHeight: 120,
+              minHeight: 40,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.inputBg,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: TextField(
+              controller: widget.controller,
+              focusNode: widget.focusNode,
+              maxLines: null,
+              textInputAction: TextInputAction.newline,
+              keyboardType: TextInputType.multiline,
+              style: const TextStyle(fontSize: 16),
+              decoration: const InputDecoration(
+                hintText: '输入消息...',
+                hintStyle: TextStyle(color: AppColors.textHint),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                isDense: true,
+              ),
+              onSubmitted: (_) {
+                if (widget.controller.text.trim().isNotEmpty) {
+                  widget.onSend();
+                }
+              },
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // 发送按钮（有文字时）
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: _hasText ? 40 : 0,
+          child: _hasText
+              ? IconButton(
+                  icon: const Icon(Icons.send_rounded),
+                  color: AppColors.primary,
+                  padding: EdgeInsets.zero,
+                  onPressed: widget.onSend,
+                )
+              : const SizedBox.shrink(),
+        ),
+        // 语音按钮（无文字时显示）
+        if (!_hasText)
+          IconButton(
+            icon: const Icon(Icons.mic_none_rounded),
+            color: AppColors.textSecondary,
+            onPressed: () {
+              widget.focusNode.unfocus();
+              setState(() => _voiceMode = true);
+            },
+          ),
+      ],
+    );
+  }
+
+  // ---- 语音模式 ----
+
+  Widget _buildVoiceModeBar() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // 更多功能按钮（保留，语音模式也可发图）
+        IconButton(
+          icon: const Icon(Icons.add_circle_outline),
+          color: AppColors.textSecondary,
+          onPressed: () => _showMoreActions(context),
+        ),
+        // 按住说话按钮
+        Expanded(
+          child: GestureDetector(
+            key: _holdBtnKey,
+            onLongPressStart: _onHoldStart,
+            onLongPressMoveUpdate: _onHoldMove,
+            onLongPressEnd: _onHoldEnd,
+            onLongPressCancel: _onHoldCancel,
+            child: Container(
+              height: 42,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: _isRecording
+                    ? AppColors.primary.withOpacity(0.08)
+                    : AppColors.inputBg,
+                borderRadius: BorderRadius.circular(21),
+                border: Border.all(
+                  color: _isRecording ? AppColors.primary : Colors.transparent,
+                  width: 1,
+                ),
+              ),
+              child: Text(
+                _isRecording
+                    ? '松开发送 ${(_recordMillis / 1000).toStringAsFixed(1)}s'
+                    : '按住 说话',
+                style: TextStyle(
+                  fontSize: 15,
+                  color: _isRecording
+                      ? AppColors.primary
+                      : AppColors.textSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // 切换回键盘
+        IconButton(
+          icon: const Icon(Icons.keyboard_alt_outlined),
+          color: AppColors.textSecondary,
+          onPressed: () => setState(() => _voiceMode = false),
+        ),
+      ],
+    );
+  }
+
+  // ---- 更多操作面板 ----
 
   void _showMoreActions(BuildContext context) {
     showModalBottomSheet(
@@ -191,7 +489,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   label: '相册',
                   onTap: () async {
                     Navigator.pop(ctx);
-                    await _pickImage(ctx, ImageSource.gallery);
+                    await _pickImage(context, ImageSource.gallery);
                   },
                 ),
                 _buildAction(
@@ -199,7 +497,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   label: '拍照',
                   onTap: () async {
                     Navigator.pop(ctx);
-                    await _pickImage(ctx, ImageSource.camera);
+                    await _pickImage(context, ImageSource.camera);
                   },
                 ),
                 _buildAction(

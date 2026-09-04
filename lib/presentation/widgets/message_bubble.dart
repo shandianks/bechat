@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../core/services/voice_player_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/message_model.dart';
 
@@ -191,23 +193,9 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildVoiceContent() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          Icons.play_arrow_rounded,
-          size: 20,
-          color: isMine ? AppColors.myBubbleText : AppColors.otherBubbleText,
-        ),
-        const SizedBox(width: 4),
-        Text(
-          message.content,
-          style: TextStyle(
-            fontSize: 14,
-            color: isMine ? AppColors.myBubbleText : AppColors.otherBubbleText,
-          ),
-        ),
-      ],
+    return _VoiceBubble(
+      message: message,
+      isMine: isMine,
     );
   }
 
@@ -248,6 +236,118 @@ class MessageBubble extends StatelessWidget {
       default:
         return const SizedBox.shrink();
     }
+  }
+}
+
+/// 语音消息气泡（点击播放/暂停）
+class _VoiceBubble extends StatelessWidget {
+  final MessageModel message;
+  final bool isMine;
+
+  const _VoiceBubble({required this.message, required this.isMine});
+
+  /// 从 extra 或 content 解析语音时长（秒）
+  int get _durationSeconds {
+    if (message.extra != null && message.extra!.isNotEmpty) {
+      try {
+        final json = jsonDecode(message.extra!);
+        if (json is Map && json['duration'] is int) {
+          return json['duration'] as int;
+        }
+      } catch (_) {}
+    }
+    // 兼容旧格式：content 为 "5s"
+    final m = RegExp(r'^(\d+)').firstMatch(message.content);
+    if (m != null) return int.tryParse(m.group(1)!) ?? 0;
+    return 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final service = VoicePlayerService.instance;
+
+    return GestureDetector(
+      onTap: () {
+        service.toggle(
+          messageId: message.messageId,
+          source: message.content,
+        );
+      },
+      child: AnimatedBuilder(
+        animation: service,
+        builder: (context, _) {
+          final isPlaying = service.playingMessageId == message.messageId &&
+              service.isPlaying;
+          double? progress;
+          if (isPlaying && service.duration > Duration.zero) {
+            progress = (service.position.inMilliseconds /
+                    service.duration.inMilliseconds)
+                .clamp(0.0, 1.0);
+          }
+
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 播放状态图标
+                  Icon(
+                    isPlaying
+                        ? Icons.graphic_eq_rounded
+                        : Icons.play_arrow_rounded,
+                    size: 20,
+                    color: isMine
+                        ? AppColors.myBubbleText
+                        : AppColors.otherBubbleText,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '$_durationSeconds\u2033',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isMine
+                          ? AppColors.myBubbleText
+                          : AppColors.otherBubbleText,
+                    ),
+                  ),
+                  // 未播放小红点（对方消息，本次会话内未播放过）
+                  if (!isMine &&
+                      !service.playedMessageIds.contains(message.messageId) &&
+                      service.playingMessageId != message.messageId)
+                    Container(
+                      margin: const EdgeInsets.only(left: 6),
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                ],
+              ),
+              // 播放进度条
+              SizedBox(
+                width: 130,
+                height: 2,
+                child: isPlaying
+                    ? LinearProgressIndicator(
+                        value: progress ?? 0,
+                        backgroundColor:
+                            (isMine ? Colors.white : Colors.black)
+                                .withOpacity(0.15),
+                        color: isMine
+                            ? AppColors.myBubbleText
+                            : AppColors.primary,
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 }
 
