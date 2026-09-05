@@ -137,6 +137,25 @@ class RCIMDatasource {
     return _send(conversationType, targetId, voiceMessage);
   }
 
+  /// 发送文件消息
+  Future<MessageModel?> sendFileMessage({
+    required int conversationType,
+    required String targetId,
+    required String filePath,
+    String? fileName,
+    int? fileSize,
+    String? fileType,
+    String? senderName,
+  }) async {
+    // 5.x Android 要求 localPath 以 file:// 开头
+    final fileMessage = FileMessage.obtain(_toFileUri(filePath));
+    if (fileName != null) fileMessage.mName = fileName;
+    if (fileSize != null) fileMessage.mSize = fileSize;
+    if (fileType != null) fileMessage.mType = fileType;
+    _attachSender(fileMessage, senderName);
+    return _send(conversationType, targetId, fileMessage);
+  }
+
   /// 统一发送入口（5.x：sendMessageWithCallBack + finished 回调判定结果）
   /// 发送成功（code==0）后从本地库取完整消息（媒体消息含远端地址）返回；
   /// 失败返回 null。
@@ -309,8 +328,17 @@ class RCIMDatasource {
         'recallTime': contentObj.mRecallTime ?? 0,
       });
     } else if (contentObj is FileMessage) {
-      content = contentObj.mName ?? '[文件]';
+      // 文件：远端地址优先，其次本地路径；名称/大小存 extra 供气泡展示
+      final remote = contentObj.mMediaUrl ?? '';
+      final local = contentObj.localPath ?? '';
+      content = remote.isNotEmpty ? remote : local;
+      if (content.isEmpty) content = contentObj.mName ?? '[文件]';
       messageType = 'RC:FileMsg';
+      extra = jsonEncode({
+        'name': contentObj.mName ?? '',
+        'size': contentObj.mSize ?? 0,
+        if (remote.isNotEmpty) 'url': remote,
+      });
     } else {
       // 未知/未解码消息（引用、GIF、阅后即焚等）：给占位文案避免空白气泡
       content = '[暂不支持的消息类型]';

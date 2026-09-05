@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../core/services/voice_player_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/message_model.dart';
@@ -118,6 +119,8 @@ class MessageBubble extends StatelessWidget {
         return _buildImageContent(context);
       case 'RC:VcMsg':
         return _buildVoiceContent();
+      case 'RC:FileMsg':
+        return _FileBubble(message: message, isMine: isMine);
       default:
         return Text(
           message.content,
@@ -255,6 +258,8 @@ class MessageBubble extends StatelessWidget {
         ('copy', Icons.copy_rounded, '复制'),
       if (isMine && message.sentStatus == 1)
         ('recall', Icons.replay_rounded, '撤回'),
+      if (isMine && message.sentStatus == 2)
+        ('resend', Icons.refresh_rounded, '重发'),
       ('delete', Icons.delete_outline_rounded, '删除'),
     ];
     if (actions.isEmpty) return;
@@ -293,6 +298,171 @@ class MessageBubble extends StatelessWidget {
 
     if (picked == null || !context.mounted) return;
     await onAction?.call(picked, message);
+  }
+}
+
+/// 文件消息气泡（文件名/大小卡片，点击下载远端文件）
+class _FileBubble extends StatelessWidget {
+  final MessageModel message;
+  final bool isMine;
+
+  const _FileBubble({required this.message, required this.isMine});
+
+  /// 展示名：extra.name > 本地路径 basename > 兜底
+  String get _displayName {
+    final extraName = _extraString('name');
+    if (extraName != null && extraName.isNotEmpty) return extraName;
+    final segs = message.content.split('/');
+    if (segs.isNotEmpty && !message.content.startsWith('http')) {
+      return segs.last;
+    }
+    return '文件';
+  }
+
+  int get _size => _extraInt('size');
+  bool get _isRemote =>
+      message.content.startsWith('http://') ||
+      message.content.startsWith('https://');
+
+  String? _extraString(String key) {
+    try {
+      final json = jsonDecode(message.extra ?? '{}');
+      if (json is Map && json[key] is String) return json[key] as String;
+    } catch (_) {}
+    return null;
+  }
+
+  int _extraInt(String key) {
+    try {
+      final json = jsonDecode(message.extra ?? '{}');
+      if (json is Map && json[key] is int) return json[key] as int;
+    } catch (_) {}
+    return 0;
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes <= 0) return '';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+  }
+
+  Color get _textColor =>
+      isMine ? AppColors.myBubbleText : AppColors.otherBubbleText;
+
+  @override
+  Widget build(BuildContext context) {
+    final sizeText = _formatSize(_size);
+    return GestureDetector(
+      onTap: () => _handleTap(context),
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 170, maxWidth: 220),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: (isMine ? Colors.white : Colors.black)
+              .withValues(alpha: isMine ? 0.18 : 0.05),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.insert_drive_file_rounded,
+              size: 30,
+              color: isMine ? Colors.white : AppColors.primary,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _displayName,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: _textColor,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (sizeText.isNotEmpty || _isRemote) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      _isRemote
+                          ? (sizeText.isNotEmpty ? '$sizeText · 点击下载' : '点击下载')
+                          : sizeText,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: _textColor.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleTap(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (_isRemote) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('开始下载...'),
+          duration: Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      final ok = await _download();
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(ok ? '已保存到应用文档目录' : '下载失败，请重试'),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    // 本地文件（自己发的 / 发送中的）
+    final f = File(message.content);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(f.existsSync() ? '本地文件: $f.path' : '本地文件不存在'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  /// 下载远端文件到应用文档目录（Demo 用系统 HttpClient，不引入额外依赖）
+  Future<bool> _download() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('$dir.path/$_displayName');
+      final client = HttpClient();
+      try {
+        final req = await client.getUrl(Uri.parse(message.content));
+        final resp = await req.close();
+        if (resp.statusCode != 200) return false;
+        await resp.pipe(file.openWrite());
+        return true;
+      } finally {
+        client.close(force: true);
+      }
+    } catch (e) {
+      debugPrint('file download error: $e');
+      return false;
+    }
   }
 }
 

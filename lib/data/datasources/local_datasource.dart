@@ -281,6 +281,26 @@ class LocalDatasource {
   List<GroupModel> getMyGroups() {
     return _groupBox.values.toList();
   }
+
+  // ============ 语音已播放记录（红点持久化） ============
+
+  String _playedVoiceKey(String userId) => 'played_voice_ids_$userId';
+
+  /// 读取某用户已播放过的语音消息 ID 列表（跨重启生效）
+  List<String> getPlayedVoiceIds(String userId) {
+    final raw = _configBox.get(_playedVoiceKey(userId));
+    if (raw == null) return [];
+    return (raw as List).cast<String>();
+  }
+
+  /// 记录一条语音已播放
+  Future<void> addPlayedVoiceId(String userId, String messageId) async {
+    final key = _playedVoiceKey(userId);
+    final list = getPlayedVoiceIds(userId);
+    if (list.contains(messageId)) return;
+    list.add(messageId);
+    await _configBox.put(key, list);
+  }
 }
 
 // Provider

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../datasources/local_datasource.dart';
 import '../datasources/rcim_datasource.dart';
@@ -176,8 +177,9 @@ class ChatRepository {
         _notifyMessageUpdate(conversationType, targetId);
         return sentMsg;
       } else {
-        // 发送失败
+        // 发送失败：置失败态并落库（重启后仍可长按重发）
         final failedMsg = localMsg.copyWith(sentStatus: 2);
+        await _local.saveMessage(failedMsg);
         _replaceOrInsert(key, localMsg, failedMsg);
         _notifyMessageUpdate(conversationType, targetId);
         return failedMsg;
@@ -185,6 +187,7 @@ class ChatRepository {
     } catch (e) {
       // 发送失败
       final failedMsg = localMsg.copyWith(sentStatus: 2);
+      await _local.saveMessage(failedMsg);
       _replaceOrInsert(key, localMsg, failedMsg);
       _notifyMessageUpdate(conversationType, targetId);
       return failedMsg;
@@ -243,12 +246,14 @@ class ChatRepository {
         return sentMsg;
       } else {
         final failedMsg = localMsg.copyWith(sentStatus: 2);
+        await _local.saveMessage(failedMsg);
         _replaceOrInsert(key, localMsg, failedMsg);
         _notifyMessageUpdate(conversationType, targetId);
         return failedMsg;
       }
     } catch (e) {
       final failedMsg = localMsg.copyWith(sentStatus: 2);
+      await _local.saveMessage(failedMsg);
       _replaceOrInsert(key, localMsg, failedMsg);
       _notifyMessageUpdate(conversationType, targetId);
       return failedMsg;
@@ -307,15 +312,141 @@ class ChatRepository {
         return sentMsg;
       } else {
         final failedMsg = localMsg.copyWith(sentStatus: 2);
+        await _local.saveMessage(failedMsg);
         _replaceOrInsert(key, localMsg, failedMsg);
         _notifyMessageUpdate(conversationType, targetId);
         return failedMsg;
       }
     } catch (e) {
       final failedMsg = localMsg.copyWith(sentStatus: 2);
+      await _local.saveMessage(failedMsg);
       _replaceOrInsert(key, localMsg, failedMsg);
       _notifyMessageUpdate(conversationType, targetId);
       return failedMsg;
+    }
+  }
+
+  /// 发送文件消息
+  Future<MessageModel> sendFileMessage({
+    required int conversationType,
+    required String targetId,
+    required String filePath,
+  }) async {
+    final currentUser = _auth.currentUser;
+    final file = File(filePath);
+    final name = file.uri.pathSegments.isEmpty
+        ? '文件'
+        : file.uri.pathSegments.last;
+    final size = file.existsSync() ? file.lengthSync() : 0;
+
+    // 本地消息（乐观显示）
+    final localMsg = MessageModel(
+      messageId: 'local_${DateTime.now().millisecondsSinceEpoch}',
+      senderId: currentUser?.id ?? '',
+      senderName: currentUser?.nickname ?? '我',
+      senderPortrait: currentUser?.portrait,
+      targetId: targetId,
+      conversationType: conversationType,
+      content: filePath,
+      messageType: 'RC:FileMsg',
+      sentStatus: 0,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      extra: jsonEncode({'name': name, 'size': size}),
+    );
+
+    final key = _cacheKey(conversationType, targetId);
+    final list = _messageCache[key] ?? [];
+    _messageCache[key] = [localMsg, ...list];
+    _notifyMessageUpdate(conversationType, targetId);
+
+    try {
+      final sentMsg = await _rcim.sendFileMessage(
+        conversationType: conversationType,
+        targetId: targetId,
+        filePath: filePath,
+        fileName: name,
+        fileSize: size,
+        fileType: name.contains('.') ? name.split('.').last : 'bin',
+        senderName: currentUser?.nickname ?? '我',
+      );
+
+      if (sentMsg != null) {
+        await _local.saveMessage(sentMsg);
+        await _local.updateConversationLastMessage(
+          conversationType: conversationType,
+          targetId: targetId,
+          content: '[文件]',
+          timestamp: sentMsg.timestamp,
+        );
+
+        _replaceOrInsert(key, localMsg, sentMsg);
+        _notifyMessageUpdate(conversationType, targetId);
+        return sentMsg;
+      } else {
+        final failedMsg = localMsg.copyWith(sentStatus: 2);
+        await _local.saveMessage(failedMsg);
+        _replaceOrInsert(key, localMsg, failedMsg);
+        _notifyMessageUpdate(conversationType, targetId);
+        return failedMsg;
+      }
+    } catch (e) {
+      final failedMsg = localMsg.copyWith(sentStatus: 2);
+      await _local.saveMessage(failedMsg);
+      _replaceOrInsert(key, localMsg, failedMsg);
+      _notifyMessageUpdate(conversationType, targetId);
+      return failedMsg;
+    }
+  }
+
+  /// 重发失败消息（先移除旧的失败态消息，再按原类型重新走发送链路）
+  Future<MessageModel> resendMessage({
+    required int conversationType,
+    required String targetId,
+    required MessageModel failedMessage,
+  }) async {
+    // 1. 移除旧失败消息（内存缓存 + Hive）
+    await _removeMessageLocal(
+      conversationType: conversationType,
+      targetId: targetId,
+      messageId: failedMessage.messageId,
+    );
+
+    // 2. 按消息类型重新发送（复用各 sendX 的乐观更新/失败落库逻辑）
+    switch (failedMessage.messageType) {
+      case 'RC:TxtMsg':
+        return sendMessage(
+          conversationType: conversationType,
+          targetId: targetId,
+          content: failedMessage.content,
+        );
+      case 'RC:ImgMsg':
+        return sendImageMessage(
+          conversationType: conversationType,
+          targetId: targetId,
+          imagePath: failedMessage.content,
+        );
+      case 'RC:VcMsg':
+        int duration = 0;
+        try {
+          final extra = jsonDecode(failedMessage.extra ?? '{}');
+          duration = (extra is Map && extra['duration'] is int)
+              ? extra['duration'] as int
+              : 0;
+        } catch (_) {}
+        return sendVoiceMessage(
+          conversationType: conversationType,
+          targetId: targetId,
+          voicePath: failedMessage.content,
+          durationSeconds: duration,
+        );
+      case 'RC:FileMsg':
+        return sendFileMessage(
+          conversationType: conversationType,
+          targetId: targetId,
+          filePath: failedMessage.content,
+        );
+      default:
+        return failedMessage;
     }
   }
 
@@ -424,6 +555,20 @@ class ChatRepository {
       conversationType: conversationType,
       targetId: targetId,
     );
+  }
+
+  /// 读取当前用户已播放的语音消息 ID（红点持久化：重启后不复活）
+  Future<List<String>> loadPlayedVoiceIds() async {
+    final uid = _auth.currentUser?.id;
+    if (uid == null) return [];
+    return _local.getPlayedVoiceIds(uid);
+  }
+
+  /// 记录一条语音已播放
+  Future<void> markVoicePlayed(String messageId) async {
+    final uid = _auth.currentUser?.id;
+    if (uid == null) return;
+    await _local.addPlayedVoiceId(uid, messageId);
   }
 
   String _cacheKey(int conversationType, String targetId) => '${conversationType}_$targetId';

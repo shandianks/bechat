@@ -15,6 +15,9 @@ class VoicePlayerService extends ChangeNotifier {
   /// 本次会话内已播放过的消息 ID（用于未播放红点）
   final Set<String> playedMessageIds = {};
 
+  /// 播放回调：开始播放某条语音时触发（供上层持久化"已播放"标记，重启后红点不复活）
+  void Function(String messageId)? onVoicePlayed;
+
   bool get isPlaying => _player.state == PlayerState.playing;
 
   Duration position = Duration.zero;
@@ -76,6 +79,7 @@ class VoicePlayerService extends ChangeNotifier {
 
     playingMessageId = messageId;
     playedMessageIds.add(messageId);
+    onVoicePlayed?.call(messageId);
     position = Duration.zero;
     notifyListeners();
 

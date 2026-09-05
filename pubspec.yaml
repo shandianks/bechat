@@ -32,6 +32,9 @@ dependencies:
   # 图片选择
   image_picker: ^1.0.7
 
+  # 文件选择
+  file_picker: ^8.1.2
+
   # 录音 + 播放
   record: ^5.1.2
   audioplayers: ^6.0.0

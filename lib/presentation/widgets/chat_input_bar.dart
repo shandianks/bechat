@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -17,6 +18,9 @@ class ChatInputBar extends StatefulWidget {
   /// 语音发送回调（本地路径 + 时长秒）
   final void Function(String voicePath, int durationSeconds) onSendVoice;
 
+  /// 文件发送回调（本地路径）
+  final void Function(String filePath) onSendFile;
+
   const ChatInputBar({
     super.key,
     required this.controller,
@@ -26,6 +30,7 @@ class ChatInputBar extends StatefulWidget {
     required this.targetId,
     required this.onSendImage,
     required this.onSendVoice,
+    required this.onSendFile,
   });
 
   @override
@@ -88,6 +93,22 @@ class _ChatInputBarState extends State<ChatInputBar> {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('选择图片失败: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickFile(BuildContext context) async {
+    try {
+      final result = await FilePicker.platform.pickFiles();
+      final path = result?.files.single.path;
+      if (path != null && path.isNotEmpty) {
+        widget.onSendFile(path);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('选择文件失败: $e')),
         );
       }
     }
@@ -503,11 +524,9 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 _buildAction(
                   icon: Icons.folder,
                   label: '文件',
-                  onTap: () {
+                  onTap: () async {
                     Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('文件功能开发中...')),
-                    );
+                    await _pickFile(context);
                   },
                 ),
                 _buildAction(

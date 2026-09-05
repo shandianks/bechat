@@ -39,6 +39,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void initState() {
     super.initState();
     _loadMessages();
+    _initVoiceTracking();
     // 订阅消息流：收消息 / 发送状态变更 / 撤回删除 均由 Repository 推送驱动
     _messageSub = ref
         .read(chatProvider)
@@ -57,8 +58,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
+  /// 语音红点持久化：
+  /// 1) 启动时把本地已播放记录灌入播放服务（重启后红点不复活）
+  /// 2) 播放回调 → 写入 Hive
+  Future<void> _initVoiceTracking() async {
+    final repo = ref.read(chatProvider);
+    try {
+      final played = await repo.loadPlayedVoiceIds();
+      VoicePlayerService.instance.playedMessageIds.addAll(played);
+    } catch (_) {}
+    VoicePlayerService.instance.onVoicePlayed = (messageId) {
+      unawaited(repo.markVoicePlayed(messageId));
+    };
+  }
+
   @override
   void dispose() {
+    VoicePlayerService.instance.onVoicePlayed = null;
     _messageSub?.cancel();
     _scrollController.dispose();
     _textController.dispose();
@@ -128,6 +144,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scrollToBottom();
   }
 
+  Future<void> _sendFile(String filePath) async {
+    final repo = ref.read(chatProvider);
+    await repo.sendFileMessage(
+      conversationType: widget.conversationType,
+      targetId: widget.targetId,
+      filePath: filePath,
+    );
+    if (!mounted) return;
+    _scrollToBottom();
+  }
+
   Future<void> _sendMessage() async {
     final content = _textController.text.trim();
     if (content.isEmpty) return;
@@ -178,6 +205,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
         messenger.showSnackBar(
           const SnackBar(content: Text('已删除'), duration: Duration(seconds: 1)),
+        );
+        break;
+      case 'resend':
+        final resent = await repo.resendMessage(
+          conversationType: widget.conversationType,
+          targetId: widget.targetId,
+          failedMessage: msg,
+        );
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              resent.sentStatus == 1 ? '已重发' : '重发失败，请检查网络后重试',
+            ),
+            duration: const Duration(seconds: 1),
+          ),
         );
         break;
     }
@@ -261,6 +303,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             targetId: widget.targetId,
             onSendImage: _sendImage,
             onSendVoice: _sendVoice,
+            onSendFile: _sendFile,
           ),
         ],
       ),

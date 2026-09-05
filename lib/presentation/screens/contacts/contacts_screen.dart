@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../data/datasources/local_datasource.dart';
+import '../../../data/models/user_model.dart';
 import '../../providers/providers.dart';
 
 class ContactsScreen extends ConsumerStatefulWidget {
@@ -190,7 +192,7 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
               title: const Text('添加联系人'),
               onTap: () {
                 Navigator.pop(ctx);
-                // TODO: 添加联系人
+                _showAddContactDialog(context);
               },
             ),
             ListTile(
@@ -206,6 +208,79 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
         ),
       ),
     );
+  }
+
+  /// 添加联系人弹窗：输入对方融云用户 ID + 昵称，持久化到本地通讯录
+  Future<void> _showAddContactDialog(BuildContext context) async {
+    final idController = TextEditingController();
+    final nameController = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('添加联系人'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: idController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '用户 ID',
+                hintText: '对方的融云用户 ID',
+                prefixIcon: Icon(Icons.badge_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: '昵称',
+                hintText: '备注名称',
+                prefixIcon: Icon(Icons.edit_outlined),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+
+    final id = idController.text.trim();
+    final name = nameController.text.trim();
+    if (confirmed != true || id.isEmpty || name.isEmpty || !mounted) return;
+
+    try {
+      final local = ref.read(localDatasourceProvider);
+      final contacts = [...local.getContacts()];
+      contacts.removeWhere((u) => u.id == id);
+      contacts.add(
+        UserModel(id: id, nickname: name, signature: '手动添加'),
+      );
+      await local.saveContacts(contacts);
+      // 本地数据源是普通 Provider，不会自动通知 → 手动失效触发刷新
+      ref.invalidate(contactsProvider);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('已添加联系人'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('添加失败: $e')),
+      );
+    }
   }
 }
 
