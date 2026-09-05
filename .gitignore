@@ -11,11 +11,11 @@ pubspec.lock.bak
 
 # Android
 **/android/local.properties
+**/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 **/android/.gradle/
 **/android/app/debug/
 **/android/app/profile/
 **/android/app/release/
-**/android/gradle/wrapper/gradle-wrapper.jar
 *.keystore
 !debug.keystore
 
