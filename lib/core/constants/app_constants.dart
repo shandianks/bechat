@@ -1,7 +1,7 @@
 class AppConstants {
   // ⚠️ 替换为你自己的融云 AppKey
   // https://www.rongcloud.cn/ 注册获取
-  static const String rongCloudAppKey = 'YOUR_RONGCLOUD_APPKEY';
+  static const String rongCloudAppKey = '25wehl3u2fbgw';
 
   // 融云 API 地址（国内版）
   static const String rongCloudApiHost = 'http://api-cn.ronghub.com';
