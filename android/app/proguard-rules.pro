@@ -38,3 +38,6 @@
 -dontwarn com.meizu.push.**
 -dontwarn com.coloros.mcs.**
 -dontwarn com.google.android.play.core.**
+# Flutter embedding 引用 play-core 但未依赖；普通 app 不走到该路径，仅 keep 以通过 R8 minify
+-keep class com.google.android.play.core.splitcompat.** { *; }
+-keep class com.google.android.play.core.splitinstall.** { *; }
