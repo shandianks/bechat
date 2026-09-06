@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 # ============================================================
-# 修复 rongcloud_im_plugin 5.1.8+7 在 Flutter 3.47+ 下的兼容性
+# 修复 rongcloud_im_plugin 5.1.8+7 在现代构建链下的兼容性
 #
-# 背景：Flutter 3.47 的 flutter.jar 已移除 PluginRegistry.Registrar，
-# 而融云 5.1.8+7 的 RongcloudImPlugin.java 里保留了已废弃的 v1
-# registerWith() 静态方法，直接编译会报错。
+# 官方包（pub.dev 5.1.8+7）停留在老模板，直接编译会失败：
+#   1. build.gradle classpath AGP 3.5.4 —— 与 AGP 8.x 主工程不兼容
+#   2. compileSdkVersion 31 —— 低于主工程 compileSdk 36
+#   3. android {} 缺 namespace —— AGP 8.x 强制要求
+#   4. RongcloudImPlugin.java 含废弃 v1 registerWith ——
+#      Flutter 3.47 flutter.jar 已移除 PluginRegistry.Registrar
 #
-# 本脚本在 `flutter pub get` 之后执行：删除 pub-cache 中该方法的
-# 定义（v2 FlutterPlugin 的 onAttachedToEngine 才是当前入口）。
+# 本脚本在 `flutter pub get` 之后执行，对 pub-cache 中的插件包
+# 打补丁（幂等，可重复执行）。
 #
 # 用法：bash tool/patch_rongcloud.sh
 # ============================================================
 set -euo pipefail
 
-# 兼容 pub-cache 在不同平台的位置（Linux/macOS/Windows Git Bash）
 PLUGIN_DIR=""
 for base in \
   "${HOME}/.pub-cache/hosted/pub.dev/rongcloud_im_plugin-5.1.8+7" \
@@ -29,33 +31,78 @@ if [ -z "${PLUGIN_DIR}" ]; then
   exit 1
 fi
 
-TARGET="${PLUGIN_DIR}/android/src/main/java/io/rong/flutter/imlib/RongcloudImPlugin.java"
-if [ ! -f "${TARGET}" ]; then
-  echo "❌ 未找到插件文件: ${TARGET}" >&2
-  exit 1
-fi
+echo "📍 插件目录: ${PLUGIN_DIR}"
 
-python3 - "${TARGET}" <<'PYEOF'
+python3 - "${PLUGIN_DIR}" <<'PYEOF'
 import re
 import sys
 
-path = sys.argv[1]
-with open(path, encoding="utf-8") as f:
+base = sys.argv[1]
+
+# ---------- 1. 修复 android/build.gradle ----------
+gradle_path = f"{base}/android/build.gradle"
+with open(gradle_path, encoding="utf-8") as f:
+    g = f.read()
+
+changed = []
+
+# 1a. AGP classpath 版本 -> 8.11.1（仅当还是旧版时）
+if "classpath 'com.android.tools.build:gradle:8.11.1'" not in g:
+    g2, n = re.subn(
+        r"classpath 'com\.android\.tools\.build:gradle:[\d.]+'",
+        "classpath 'com.android.tools.build:gradle:8.11.1'",
+        g,
+    )
+    if n:
+        changed.append(f"AGP classpath 升级为 8.11.1（{n} 处）")
+    g = g2
+
+# 1b. compileSdkVersion -> 36（仅当低于 36 时）
+if "compileSdkVersion 36" not in g:
+    g2, n = re.subn(r"compileSdkVersion \d+", "compileSdkVersion 36", g)
+    if n:
+        changed.append(f"compileSdkVersion 升为 36（{n} 处）")
+    g = g2
+
+# 1c. android {} 块补 namespace（AGP 8.x 强制）
+if "namespace" not in g:
+    g2, n = re.subn(
+        r"(\nandroid \{)",
+        "\nandroid {\n    namespace 'io.rong.flutter.imlib'",
+        g,
+        count=1,
+    )
+    if n:
+        changed.append("补充 namespace 'io.rong.flutter.imlib'")
+    g = g2
+
+if changed:
+    with open(gradle_path, "w", encoding="utf-8") as f:
+        f.write(g)
+    print("✅ build.gradle:", "；".join(changed))
+else:
+    print("ℹ️  build.gradle 无需修改（可能已打过补丁）")
+
+# ---------- 2. 删除 java 中废弃的 v1 registerWith ----------
+java_path = f"{base}/android/src/main/java/io/rong/flutter/imlib/RongcloudImPlugin.java"
+if not __import__("os").path.exists(java_path):
+    print(f"⚠️  未找到 {java_path}，跳过 java 补丁")
+    sys.exit(0 if changed else 1)
+
+with open(java_path, encoding="utf-8") as f:
     src = f.read()
 
-# registerWith 方法体内无嵌套大括号，可用非贪婪块匹配
 pattern = re.compile(
     r"\n?[ \t]*public static void registerWith\(PluginRegistry\.Registrar registrar\) \{"
     r"[^}]*\}[ \t]*\r?\n?"
 )
-
-new, n = pattern.subn("", src)
-if n == 0:
-    print("ℹ️  未找到 registerWith（可能已打过补丁），跳过")
+new_src, n = pattern.subn("", src)
+if n:
+    with open(java_path, "w", encoding="utf-8") as f:
+        f.write(new_src)
+    print(f"✅ RongcloudImPlugin.java: 删除废弃 registerWith 方法（{n} 处）")
 else:
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(new)
-    print(f"✅ 已删除 registerWith 方法（{n} 处）")
+    print("ℹ️  RongcloudImPlugin.java 无需修改（可能已打过补丁）")
 PYEOF
 
-echo "✅ rongcloud_im_plugin 补丁完成: ${TARGET}"
+echo "✅ rongcloud_im_plugin 补丁完成"
