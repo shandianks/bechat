@@ -37,3 +37,4 @@
 -dontwarn com.igexin.push.**
 -dontwarn com.meizu.push.**
 -dontwarn com.coloros.mcs.**
+-dontwarn com.google.android.play.core.**
