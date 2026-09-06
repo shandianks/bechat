@@ -43,10 +43,10 @@ flutter {
 // 强制使用支持 Android 15+/16 (16KB 内存页) 的融云原生 SDK。
 // rongcloud_im_plugin 5.1.8+7 默认锁 im_libcore/im_chatroom 5.2.3.2，
 // 其 .so 为 4KB 页对齐，在 Android 16 (16KB 页内核，如 Pixel 9/10) 上
-// 加载即崩 (UnsatisfiedLinkError / SIGSEGV)。5.46.0 已为 16KB 对齐。
+// 加载即崩 (UnsatisfiedLinkError / SIGSEGV)。5.44.0 已为 16KB 对齐。
 configurations.all {
     resolutionStrategy {
-        force 'cn.rongcloud.sdk:im_libcore:5.46.0'
-        force 'cn.rongcloud.sdk:im_chatroom:5.46.0'
+        force 'cn.rongcloud.sdk:im_libcore:5.44.0'
+        force 'cn.rongcloud.sdk:im_chatroom:5.44.0'
     }
 }
