@@ -76,6 +76,20 @@ if "namespace" not in g:
         changed.append("补充 namespace 'io.rong.flutter.imlib'")
     g = g2
 
+# 1d. 升级融云原生 SDK 到支持 Android 15+/16 (16KB 页) 的版本
+#     rongcloud_im_plugin 5.1.8+7 默认锁 5.2.3.2，其 .so 为 4KB 页对齐，
+#     在 Android 16 (16KB 页内核，如 Pixel 9/10) 上加载即崩。5.46.0 已为 16KB 对齐。
+if "im_libcore:5.46.0" not in g:
+    g2, n = re.subn(r"im_libcore:[\d.]+", "im_libcore:5.46.0", g)
+    if n:
+        changed.append(f"im_libcore 升为 5.46.0（{n} 处）")
+    g = g2
+if "im_chatroom:5.46.0" not in g:
+    g2, n = re.subn(r"im_chatroom:[\d.]+", "im_chatroom:5.46.0", g)
+    if n:
+        changed.append(f"im_chatroom 升为 5.46.0（{n} 处）")
+    g = g2
+
 if changed:
     with open(gradle_path, "w", encoding="utf-8") as f:
         f.write(g)
