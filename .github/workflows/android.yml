@@ -1,0 +1,72 @@
+# ============================================================
+# GitHub Actions：自动编译 Android APK 并上传
+#
+# 触发方式：
+#   1. push 到 main/master        → 编译 APK + 上传为 Actions artifact
+#   2. 打 tag（如 v1.0.0）        → 编译 APK + 发布到 GitHub Releases
+#   3. 手动触发（Actions 页点 Run workflow）
+#
+# 产物：build/app/outputs/flutter-apk/app-release.apk
+# 签名：debug 签名（见 android/app/build.gradle，无需配置 keystore）
+# ============================================================
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build Release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter 3.47.2 (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.2"
+          channel: stable
+          cache: true
+
+      - name: Accept Android SDK licenses
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Patch rongcloud_im_plugin (Flutter 3.47 compat)
+        run: bash tool/patch_rongcloud.sh
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Upload APK (Actions artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: bechat-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          files: build/app/outputs/flutter-apk/app-release.apk
+          fail_on_unmatched_files: true
